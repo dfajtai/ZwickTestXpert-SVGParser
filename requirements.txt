@@ -3,3 +3,5 @@ pandas
 svgelements
 matplotlib
 ipython
+scipy
+kneed

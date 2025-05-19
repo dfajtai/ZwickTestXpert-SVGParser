@@ -8,42 +8,19 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
 
+import scipy.signal
+import scipy.stats
 from svgelements import SVG, Path, Text, Line
 
-def find_longest_one_sequence_indices(arr, n=1):
-    """Returns start/end indices of the first n longest 1s sequences using zero-crossing logic."""
-    arr = np.asarray(arr)
-    if len(arr) == 0:
-        return []
-
-    # Detect transitions using forward difference
-    diff = np.diff(arr)
-    starts = np.where(diff == 1)[0] + 1  # 0→1 transitions (+1 for original index)
-    ends = np.where(diff == -1)[0]       # 1→0 transitions (original index)
-
-    # Handle array boundaries
-    if arr[0] == 1:
-        starts = np.insert(starts, 0, 0)
-    if arr[-1] == 1:
-        ends = np.append(ends, len(arr ) -1)
-
-    # Create sequence candidates
-    sequences = []
-    for s, e in zip(starts, ends):
-        if s <= e:  # Validate sequence
-            sequences.append((s, e, e - s + 1))
-
-    # Sort by length (descending) then position (ascending)
-    sequences.sort(key=lambda x: (-x[2], x[0]))
-
-    return [(s, e) for s, e, _ in sequences[:n]]
-
+import scipy
+from scipy.signal import find_peaks, butter, filtfilt, savgol_filter
 
 
 def parse_svg_plot(svg_path:str, min_segment_len:int = 100, 
                    x_min:float = 0, y_min:float = 0, 
                    x_max:float = 20, y_max:float =2500,
-                   x_invert:bool = False, y_invert:bool = False)-> List[pd.DataFrame]:
+                   x_invert:bool = False, y_invert:bool = False,
+                   start_skip = 5, end_skip = 5)-> List[pd.DataFrame]:
     """
     Parse SVG plot and return a DataFrame with the data.
     """
@@ -118,8 +95,8 @@ def parse_svg_plot(svg_path:str, min_segment_len:int = 100,
     df_list = []
     
     for dataset in datasets:
-        data = np.array(dataset)
-        
+        data = np.array(dataset)[start_skip:-end_skip,:]
+                
         # displacement
         data = data - origin
         
@@ -140,32 +117,68 @@ def parse_svg_plot(svg_path:str, min_segment_len:int = 100,
     return df_list
 
 
+def save_parsed_data(parsed_data:List[pd.DataFrame],out_dir:str, name_extension:str, start_index:int = 1, index_length:int = 3,
+                     x_label: str = "Travel[mm]",y_label: str = "Force[N]"):
+    assert isinstance(parsed_data,list)
+    if not os.path.isdir(out_dir):
+        os.makedirs(out_dir,exist_ok=False)
+        
+    col_lookup = {"x":x_label,"y":y_label}
 
-if __name__ == "__main__":
-    # Example usage
-    svg_path = "sample/20_2500_20_1x1.svg"
-    df_list = parse_svg_plot(svg_path)
-    
-    
-    for i, df in enumerate(df_list):
+    for i, df in enumerate(parsed_data):
+        idx = start_index+i
+        
         if not isinstance(df,pd.DataFrame):
+            print(f"Sample {idx} is invalid. (Invalid type.)")
             continue
         
-        df.to_csv(f"sample/curve_{str(i+1).zfill(2)}.csv",index = False, float_format="%.3f")
+        if not all([c in df.columns for c in ["x","y"]]):
+            print(f"Sample {idx} is invalid. (Missing column.)")
+            continue
         
+        _df = df.copy()
+        _df.columns = [col_lookup.get(c) for c in df.columns]
+        
+        out_path = os.path.join(out_dir,f"{name_extension}_{str(idx).zfill(index_length)}.csv")
+        _df.to_csv(out_path,index = False, float_format="%.3f")
+        
+        print(f"Sample {str(idx).zfill(index_length)} saved at {out_path}")
+        
+
+def save_parsed_data_as_plots(parsed_data:List[pd.DataFrame],out_dir:str, name_extension:str, start_index:int = 1, index_length:int = 3,
+                     x_label: str = "Travel[mm]",y_label: str = "Force[N]",
+                     x_lim:list = [0,20], y_lim:list = [0,2500]):
+    
+    assert isinstance(parsed_data,list)
+    if not os.path.isdir(out_dir):
+        os.makedirs(out_dir,exist_ok=False)
+        
+    col_lookup = {"x":x_label,"y":y_label}
+
+    for i, df in enumerate(parsed_data):
+        idx = start_index+i
+        
+        if not isinstance(df,pd.DataFrame):
+            print(f"Sample {idx} is invalid. (Invalid type.)")
+            continue
+        
+        if not all([c in df.columns for c in ["x","y"]]):
+            print(f"Sample {idx} is invalid. (Missing column.)")
+            continue
         
         fig, ax = plt.subplots()
         ax.plot(df['x'], df['y'])
-        ax.set_xlabel('travel in mm')
-        ax.set_ylabel('force in N')
+        ax.set_xlabel(col_lookup.get('x'))
+        ax.set_ylabel(col_lookup.get('y'))
         
+        ax.set_title(f'Sample {str(idx).zfill(index_length)}')
         
         # Y-axis: major grid every 500, minor grid every 100
         ax.yaxis.set_major_locator(MultipleLocator(500))
         ax.yaxis.set_minor_locator(MultipleLocator(100))
         
-        ax.set_xlim(0,20)
-        ax.set_ylim(0,2500)
+        ax.set_xlim(*x_lim)
+        ax.set_ylim(*y_lim)
         
         ax.grid(True, axis='y', which='major', linestyle=':', linewidth=0.5, color='black')
         ax.grid(True, axis='y', which='minor', linestyle=':', linewidth=0.2, color='gray')
@@ -176,10 +189,110 @@ if __name__ == "__main__":
         ax.grid(True, axis='x', which='major', linestyle=':', linewidth=0.5, color='black')
         ax.grid(True, axis='x', which='minor', linestyle=':', linewidth=0.2, color='gray')
         
+        out_path = os.path.join(out_dir,f"{name_extension}_{str(idx).zfill(index_length)}.png")
         
-        plt.savefig(f"sample/curve_{str(i+1).zfill(2)}.png")  # Save the figure
+        plt.savefig(out_path)  # Save the figure
         plt.close()
-        # plt.show()
+        
+        print(f"Plot created for sample {str(idx).zfill(index_length)} at {out_path}")
+        
+        
+def analyze_data(x:np.ndarray,y:np.ndarray, target_num_of_extremas:int=2, min_value_factor:float = 0.2)->dict:
+    assert isinstance(x,np.ndarray) and isinstance(y,np.ndarray)
+    assert np.all(x.shape == y.shape)
+    
+    y_min = np.min(y)
+    y_max = np.max(y)
+    
+    
+    sampling_rate = 1.0 / np.mean(np.diff(x))
+    filtered_signal = savgol_filter(y,10,5)
+    
+    diff_signal = np.abs(y-filtered_signal)
+    
+    peaks, properties = scipy.signal.find_peaks(y, distance = 10, height=np.max(y)*min_value_factor, prominence=(0.3, None))
+    
+    diff_peaks, diff_props = scipy.signal.find_peaks(diff_signal, distance=5, height=np.max(diff_signal)*.3)
+    
+    plt.plot(y)
+    # plt.plot(filtered_signal)
+    plt.plot(peaks, y[peaks], "x")
+    plt.plot(diff_peaks, y[diff_peaks], "x", 0.3)
+    plt.plot(diff_signal)
+    
+    
+    plt.show()
+    
+    
+    
+
+
+def plot_analysis_results(x:np.ndarray,y:np.ndarray, extrema_dict:dict,
+                          out_dir:str, name_extension:str,
+                          index:int, index_length:int = 3,
+                          x_label: str = "Travel[mm]",y_label: str = "Force[N]",
+                          x_lim:list = [0,20], y_lim:list = [0,2500]):
+    pass
+
+def save_analysis_results(x:np.ndarray,y:np.ndarray, extrema_dict:dict,
+                          out_dir:str, name_extension:str,
+                          index:int, index_length:int = 3,
+                          x_label: str = "Travel[mm]",y_label: str = "Force[N]"):
+    pass
 
 
 
+def analyze_parsed_data(parsed_data:List[pd.DataFrame],out_dir:str, name_extension:str, start_index:int = 1, index_length:int = 3,
+                     x_label: str = "Travel[mm]",y_label: str = "Force[N]",
+                     x_lim:list = [0,20], y_lim:list = [0,2500],
+                     save_results = True, save_plot = True):
+    assert isinstance(parsed_data,list)
+    if not os.path.isdir(out_dir):
+        os.makedirs(out_dir,exist_ok=False)
+        
+
+    for i, df in enumerate(parsed_data):
+        idx = start_index+i
+        
+        if not isinstance(df,pd.DataFrame):
+            print(f"Sample {idx} is invalid. (Invalid type.)")
+            continue
+        
+        if not all([c in df.columns for c in ["x","y"]]):
+            print(f"Sample {idx} is invalid. (Missing column.)")
+            continue
+        
+        X = np.array(df.get('x').to_list())
+        Y = np.array(df.get('y').to_list())
+
+        extrema_results = analyze_data(X,Y)
+        
+        if save_results:
+            save_analysis_results(X,Y,extrema_dict=extrema_results,
+                                out_dir=out_dir,
+                                name_extension=name_extension,
+                                index = idx,
+                                index_length=index_length,
+                                x_label=x_label,y_label=y_label)
+        
+        if save_plot:
+            plot_analysis_results(X,Y,extrema_dict=extrema_results,
+                            out_dir=out_dir,
+                            name_extension=name_extension,
+                            index = idx,
+                            index_length=index_length,
+                            x_label=x_label,y_label=y_label,
+                            x_lim=x_lim, y_lim=y_lim)
+        
+        
+    
+if __name__ == "__main__":
+    # Example usage
+    svg_path = "sample/20_2500_20_1x1.svg"
+    df_list = parse_svg_plot(svg_path)
+    
+    # save_parsed_data(df_list,"sample/results","result")    
+    # save_parsed_data_as_plots(df_list,"sample/results","result")
+
+    
+    analyze_parsed_data(df_list,"sample/results","result")
