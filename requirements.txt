@@ -5,3 +5,4 @@ matplotlib
 ipython
 scipy
 kneed
+scikit-learn

@@ -1,5 +1,5 @@
 import os, sys, glob, re
-
+from collections import OrderedDict
 from typing import List
 
 import numpy as np
@@ -8,8 +8,12 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
 
+import scipy.integrate
 import scipy.signal
+
 import scipy.stats
+from sklearn.metrics import mean_squared_error
+
 from svgelements import SVG, Path, Text, Line
 
 import scipy
@@ -20,7 +24,9 @@ def parse_svg_plot(svg_path:str, min_segment_len:int = 100,
                    x_min:float = 0, y_min:float = 0, 
                    x_max:float = 20, y_max:float =2500,
                    x_invert:bool = False, y_invert:bool = False,
-                   start_skip = 5, end_skip = 5)-> List[pd.DataFrame]:
+                   start_skip = 5, end_skip = 5,
+                   x_start_limit = 1,
+                   *args, **kwargs)-> List[pd.DataFrame]:
     """
     Parse SVG plot and return a DataFrame with the data.
     """
@@ -102,13 +108,15 @@ def parse_svg_plot(svg_path:str, min_segment_len:int = 100,
         
         x = data[:,0]*x_factor
         y = data[:,1]*y_factor
-              
-    
+                      
         # invert
         if x_invert:
             x = x_max-x
         if y_invert:
             y = y_max-y
+            
+        if x[0]>x_start_limit:
+            continue
 
         df = pd.DataFrame({"x":list(x),"y":list(y)})
         
@@ -118,7 +126,7 @@ def parse_svg_plot(svg_path:str, min_segment_len:int = 100,
 
 
 def save_parsed_data(parsed_data:List[pd.DataFrame],out_dir:str, name_extension:str, start_index:int = 1, index_length:int = 3,
-                     x_label: str = "Travel[mm]",y_label: str = "Force[N]"):
+                     x_label: str = "Travel[mm]",y_label: str = "Force[N]",*args, **kwargs):
     assert isinstance(parsed_data,list)
     if not os.path.isdir(out_dir):
         os.makedirs(out_dir,exist_ok=False)
@@ -147,7 +155,7 @@ def save_parsed_data(parsed_data:List[pd.DataFrame],out_dir:str, name_extension:
 
 def save_parsed_data_as_plots(parsed_data:List[pd.DataFrame],out_dir:str, name_extension:str, start_index:int = 1, index_length:int = 3,
                      x_label: str = "Travel[mm]",y_label: str = "Force[N]",
-                     x_lim:list = [0,20], y_lim:list = [0,2500]):
+                     x_lim:list = [0,20], y_lim:list = [0,2500],*args, **kwargs):
     
     assert isinstance(parsed_data,list)
     if not os.path.isdir(out_dir):
@@ -197,7 +205,7 @@ def save_parsed_data_as_plots(parsed_data:List[pd.DataFrame],out_dir:str, name_e
         print(f"Plot created for sample {str(idx).zfill(index_length)} at {out_path}")
         
         
-def analyze_data(x:np.ndarray,y:np.ndarray, target_num_of_extremas:int=2, min_value_factor:float = 0.2)->dict:
+def analyze_data(x:np.ndarray,y:np.ndarray, target_num_of_extremas:int=2, min_value_factor:float = 0.2,*args, **kwargs)->dict:
     assert isinstance(x,np.ndarray) and isinstance(y,np.ndarray)
     assert np.all(x.shape == y.shape)
     
@@ -220,36 +228,19 @@ def analyze_data(x:np.ndarray,y:np.ndarray, target_num_of_extremas:int=2, min_va
     plt.plot(diff_peaks, y[diff_peaks], "x", 0.3)
     plt.plot(diff_signal)
     
-    
     plt.show()
     
-    
-    
 
-
-def plot_analysis_results(x:np.ndarray,y:np.ndarray, extrema_dict:dict,
-                          out_dir:str, name_extension:str,
-                          index:int, index_length:int = 3,
-                          x_label: str = "Travel[mm]",y_label: str = "Force[N]",
-                          x_lim:list = [0,20], y_lim:list = [0,2500]):
-    pass
-
-def save_analysis_results(x:np.ndarray,y:np.ndarray, extrema_dict:dict,
-                          out_dir:str, name_extension:str,
-                          index:int, index_length:int = 3,
-                          x_label: str = "Travel[mm]",y_label: str = "Force[N]"):
-    pass
-
-
-
-def analyze_parsed_data(parsed_data:List[pd.DataFrame],out_dir:str, name_extension:str, start_index:int = 1, index_length:int = 3,
+# Local extrema analysis
+def local_analyze_parsed_data(parsed_data:List[pd.DataFrame],out_dir:str, name_extension:str, start_index:int = 1, index_length:int = 3,
                      x_label: str = "Travel[mm]",y_label: str = "Force[N]",
                      x_lim:list = [0,20], y_lim:list = [0,2500],
-                     save_results = True, save_plot = True):
+                     save_results = False, save_plot = False,*args, **kwargs):
     assert isinstance(parsed_data,list)
     if not os.path.isdir(out_dir):
         os.makedirs(out_dir,exist_ok=False)
-        
+    
+    
 
     for i, df in enumerate(parsed_data):
         idx = start_index+i
@@ -268,7 +259,7 @@ def analyze_parsed_data(parsed_data:List[pd.DataFrame],out_dir:str, name_extensi
         extrema_results = analyze_data(X,Y)
         
         if save_results:
-            save_analysis_results(X,Y,extrema_dict=extrema_results,
+            plot_local_analysis_results(X,Y,extrema_dict=extrema_results,
                                 out_dir=out_dir,
                                 name_extension=name_extension,
                                 index = idx,
@@ -276,23 +267,303 @@ def analyze_parsed_data(parsed_data:List[pd.DataFrame],out_dir:str, name_extensi
                                 x_label=x_label,y_label=y_label)
         
         if save_plot:
-            plot_analysis_results(X,Y,extrema_dict=extrema_results,
+            save_local_analysis_results(X,Y,extrema_dict=extrema_results,
                             out_dir=out_dir,
                             name_extension=name_extension,
                             index = idx,
                             index_length=index_length,
                             x_label=x_label,y_label=y_label,
                             x_lim=x_lim, y_lim=y_lim)
+            
+
+def plot_local_analysis_results(x:np.ndarray,y:np.ndarray, extrema_dict:dict,
+                          out_dir:str, name_extension:str,
+                          index:int, index_length:int = 3,
+                          x_label: str = "Travel[mm]",y_label: str = "Force[N]",
+                          x_lim:list = [0,20], y_lim:list = [0,2500]):
+    raise NotImplementedError()
+
+def save_local_analysis_results(x:np.ndarray,y:np.ndarray, extrema_dict:dict,
+                          out_dir:str, name_extension:str,
+                          index:int, index_length:int = 3,
+                          x_label: str = "Travel[mm]",y_label: str = "Force[N]"):
+    raise NotImplementedError()
+
         
         
+def compare_maximum_values(df_list,max_val_list,*args, **kwargs):
+    x = [] # orig
+    y= [] # approx
     
-if __name__ == "__main__":
-    # Example usage
-    svg_path = "sample/20_2500_20_1x1.svg"
-    df_list = parse_svg_plot(svg_path)
+    for df,max_val in zip(df_list,max_val_list):
+        y.append(np.max(df["y"]))
+        x.append(max_val)
     
-    # save_parsed_data(df_list,"sample/results","result")    
-    # save_parsed_data_as_plots(df_list,"sample/results","result")
+    x = np.array(x)
+    y = np.array(y)
 
     
-    analyze_parsed_data(df_list,"sample/results","result")
+    # Linear regression
+    slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(x, y)
+    y_pred = slope * x + intercept
+
+    # Calculate RMSE
+    rmse = np.sqrt(mean_squared_error(y, y_pred))
+
+    # Calculate SE of residuals
+    residuals = y - y_pred
+    se = scipy.stats.sem(residuals)
+
+    # Plot
+    plt.scatter(x, y)
+    plt.plot(x, y_pred, color='red')
+
+    # Annotate metrics
+    plt.annotate(
+        f"y = {slope:.2f}x + {intercept:.2f}\n"
+        f"$R^2$ = {r_value**2:.3f}\n"
+        f"RMSE = {rmse:.3f}\n"
+        f"SE = {se:.3f}",
+        xy=(0.05, 0.95), xycoords='axes fraction',
+        fontsize=12, ha='left', va='top'
+    )
+
+    plt.xlabel("Orig Fmax (N)")
+    plt.ylabel("Approx. Fmax (N)")
+    plt.title("ZWICK svg parse precision")
+    plt.show()
+
+
+
+def sigmoid(x, x0, k, L, b):
+    return L / (1 + np.exp(-k*(x-x0))) + b
+
+def tangent_line(x, x0, k, L, b):
+    slope = L * k / 4
+    y_mid = L/2 + b  # Sigmoid value at x=x0
+    return slope * (x - x0) + y_mid
+
+def curve_characteristics(parsed_data:List[pd.DataFrame],out_dir:str, name_extension:str, start_index:int = 1, index_length:int = 3,
+                     x_label: str = "Travel[mm]",y_label: str = "Force[N]",
+                     x_lim:list = [0,20], y_lim:list = [0,2500],
+                     save_plot = True, show_plot = False,*args, **kwargs):
+    
+    assert isinstance(parsed_data,list)
+    if not os.path.isdir(out_dir):
+        os.makedirs(out_dir,exist_ok=False)
+    
+    res_list = []
+
+    for i, df in enumerate(parsed_data):
+        idx = start_index+i
+        
+        sample_name = str(idx).zfill(index_length)
+        
+        if not isinstance(df,pd.DataFrame):
+            print(f"Sample {idx} is invalid. (Invalid type.)")
+            continue
+        
+        if not all([c in df.columns for c in ["x","y"]]):
+            print(f"Sample {idx} is invalid. (Missing column.)")
+            continue
+        
+        X = np.array(df.get('x').to_list())
+        Y = np.array(df.get('y').to_list())
+        
+        # sanitize: remove data points when X step is 0
+        sanitize_mask = np.diff(X) > 0
+        x_lim_mask = X>0
+        X = X[:-1][sanitize_mask&x_lim_mask[:-1]]
+        Y = Y[:-1][sanitize_mask&x_lim_mask[:-1]]
+        
+        
+        # global maxima
+        F_max = np.max(Y)
+        F_max_index = np.argmax(Y)
+        F_max_loc = X[F_max_index]
+        
+        curve_x_before = X[:F_max_index]        
+        curve_y_before = Y[:F_max_index]
+
+        curve_x_after = X[F_max_index:]        
+        curve_y_after = Y[F_max_index:]
+        
+        
+        # stored energy
+        area_total_simpson = scipy.integrate.simpson(Y,X) 
+        area_before_simpson =  scipy.integrate.simpson(curve_y_before,curve_x_before)
+        area_after_simpson =  scipy.integrate.simpson(curve_y_after,curve_x_after)
+        
+        area_total_trapz = np.trapezoid(Y,X)
+        area_before_trapz =  np.trapezoid(curve_y_before,curve_x_before)
+        area_after_trapz =  np.trapezoid(curve_y_after,curve_x_after)
+        
+        # gradient
+        before_grad = np.gradient(curve_y_before,curve_x_before)
+        before_grad_max = np.max(before_grad)
+        before_gra_max_loc = curve_x_before[np.argmax(before_grad)]
+        
+        after_grad = np.gradient(curve_y_after,curve_x_after)
+        after_grad_min = np.min(after_grad)
+        after_grad_min_loc = curve_x_after[np.argmin(after_grad)]
+        
+        # sigmoid fit
+        
+        # initial params
+        
+        L_estimate = np.max(curve_y_before) - np.min(curve_y_before)
+        b_estimate = np.min(curve_y_before)
+        k_estimate = 5
+        x0_estimate = np.median(curve_x_before)  # or where gradient is maximum
+        p0 = [x0_estimate, k_estimate, L_estimate, b_estimate]
+                
+        popt, pcov = scipy.optimize.curve_fit(sigmoid, curve_x_before, curve_y_before, p0 = p0, maxfev=10000)
+        f_approx = sigmoid(curve_x_before, *popt)
+        f_approx_rmse = np.sqrt(mean_squared_error(curve_y_before, f_approx))
+        x0, k, L, b = popt
+                
+        # fit linear around inflexion point       
+        linear_slope = L * k / 4 # Slope of linear region        
+        y_mid = L/2 + b # Midpoint y-value
+        eqn = f"y = {linear_slope:.2f}(x - {x0:.2f}) + {y_mid:.2f}" # Linear equation string
+        
+        linear_mask = (curve_x_before >= x0 - 2/k) & (curve_x_before <= x0 + 2/k)
+        linear_x = curve_x_before[linear_mask]
+        linear_y = curve_y_before[linear_mask]
+        
+        # Plot validation
+        plt.figure(figsize=(12, 8))
+        
+        # Main curves
+        plt.plot(X, Y, label='Original Curve', color='blue', linewidth=1, alpha = 0.5)
+        plt.plot(curve_x_before, f_approx, label='Fitted Sigmoid', color='green', linewidth=1)
+        plt.plot(linear_x, tangent_line(linear_x, x0, k, L, b), 
+                'r--', label='Tangent from Sigmoid Fit', linewidth=1)
+        
+        plt.fill_between(curve_x_before, 0, curve_y_before, color='orange', alpha=0.3, label='Before Max Energy [Nm]')
+        plt.fill_between(curve_x_after, 0, curve_y_after, color='purple', alpha=0.3, label='After Max Energy [Nm]')
+        
+        # Annotate sigmoid midpoint
+        y_at_midpoint = sigmoid(x0, x0, k, L, b)
+        plt.annotate(f'Midpoint (Sigmoid x0={x0:.2f})', 
+                    xy=(x0, y_at_midpoint),
+                    xytext=(x0 + 0.1, y_at_midpoint - 100),
+                    arrowprops=dict(facecolor='black', arrowstyle='->'),
+                    fontsize=10, color='black',
+                    bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8))
+        
+        # Annotate curve max
+        plt.annotate(f'Max: {F_max:.1f}N @ {F_max_loc:.2f}mm', 
+                    xy=(F_max_loc, F_max),
+                    xytext=(F_max_loc - 0.15, F_max + 100),
+                    arrowprops=dict(facecolor='purple', arrowstyle='->'),
+                    fontsize=10, color='purple',
+                    bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8))
+        
+        # Vertical dotted line at curve max location
+        plt.axvline(F_max_loc, color='purple', linestyle=':', 
+                   label='Curve Max Location', linewidth=1)
+
+        
+        
+        # Calculate energy ratios
+        ratio_before = area_before_simpson / area_total_simpson if area_total_simpson != 0 else 0
+        ratio_after = area_after_simpson / area_total_simpson if area_total_simpson != 0 else 0
+        
+        # Energy annotation box
+        energy_text = f'Energy Analysis:\nTotal: {area_total_simpson/1000.0:.1f} Nm\nBefore Max: {area_before_simpson/1000.0:.1f} Nm ({ratio_before:.1%})\nAfter Max: {area_after_simpson/1000.0:.1f} Nm ({ratio_after:.1%})'
+        plt.text(0.02, 0.95, energy_text, transform=plt.gca().transAxes, fontsize=10,
+                verticalalignment='top', 
+                bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
+        
+        # Fit and parameters:
+        textstr = f'Sigmoid RMSE: {f_approx_rmse:.2f}\nSigmoid k: {k:.2f}\nTangent Slope: {linear_slope:.2f} N/mm'
+        plt.text(0.02, 0.80, textstr, transform=plt.gca().transAxes, fontsize=9,
+        verticalalignment='top', 
+        bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+        
+        
+        # Labels, legend, grid, limits
+        plt.xlabel(x_label, fontsize=12)
+        plt.ylabel(y_label, fontsize=12)
+        plt.xlim(x_lim)
+        plt.ylim(y_lim)
+        plt.grid(True, alpha=0.3)
+        plt.legend(loc='best', fontsize=10)
+        plt.title(f'Curve Characteristics - Sample {sample_name}', fontsize=14)
+        
+        
+        if save_plot:
+            plt.savefig(os.path.join(out_dir, f'sample_{sample_name}.png'), 
+                       dpi=300, bbox_inches='tight')
+        if show_plot:
+            plt.show()
+        plt.close()
+
+        res_list.append({"sample":sample_name,
+                         "F_max":F_max,
+                         "F_max_loc":F_max_loc,
+                         "Total_energy":area_total_simpson,
+                         "Before_F_max_energy":area_before_simpson,
+                         "After_F_max_energy":area_after_simpson,
+                         "Before_Grad_max":before_grad_max,
+                         "Before_Grad_max_loc":before_gra_max_loc,
+                         "After_grad_min":after_grad_min,
+                         "After_grad_min_loc":after_grad_min_loc,
+                         "sigmoid_x0":x0,
+                         "sigmoid_k":k,
+                         "sigmoid_L":L,
+                         "sigmoid_b":b,
+                         "sigmoid_RMSE":f_approx_rmse,
+                         "sigmoid_linear_slope":linear_slope
+                         })
+        
+    res_df = pd.DataFrame(res_list)
+    res_df.to_csv(os.path.join(out_dir,f"{name_extension}.csv"),index=False,float_format="%.3f")
+
+
+def zwick_parse_pipeline(svg_path:str, settings:dict, out_dir:str, save_plots:bool =True):
+    assert os.path.exists(svg_path)
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+    
+    df_list = parse_svg_plot(svg_path,**settings)
+    save_parsed_data(df_list,os.path.join(out_dir,"curves"),"sample",**settings)    
+    if save_plots:
+        save_parsed_data_as_plots(df_list,os.path.join(out_dir,"curves"),"sample",**settings)
+    
+    curve_characteristics(df_list,os.path.join(out_dir,"curve_characteristics"),"result",save_plot=save_plots, **settings)
+    
+
+if __name__ == "__main__":
+    settings = OrderedDict(x_label= "Travel[mm]",y_label = "Force[N]",
+                x_lim= [0,20], y_lim= [0,3000],x_min= 0, y_min = 0, 
+                x_max= 20, y_max=3000, min_segment_len = 200)
+    
+    
+    # Example usage
+    svg_path = "sample/20_2500_20_1x1.svg"
+    # df_list = parse_svg_plot(svg_path,**settings)
+    
+    # save_parsed_data(df_list,"sample/curves","sample",**settings)    
+    # save_parsed_data_as_plots(df_list,"sample/curves","sample",**settings)
+       
+    # F max precision measure
+    # ref_df = pd.read_csv('sample/references.csv',sep=";")
+    # ref_df.columns = [str(c).strip() for c in ref_df.columns]
+    # max_val_list = ref_df["Fmax."].apply(lambda x: float(str(x).split(" ")[0].replace(",","."))).to_list()
+    # compare_maximum_values(df_list,max_val_list)    
+    
+    # Local extrema analysis
+    # local_analyze_parsed_data(df_list,"sample/local_analysis","result")
+    
+    # Curve characteristics
+    # curve_char_df = curve_characteristics(df_list,"sample/curve_characteristics","result",**settings)
+    
+    
+    # zwick_parse_pipeline(svg_path,settings,"sample")
+    
+    
+    zwick_parse_pipeline("/nas/medicopus_share/Projects/ANIMALS/PIGWEB_TNA/mc_bones/measurements/80.svg",
+                         settings,
+                         "/nas/medicopus_share/Projects/ANIMALS/PIGWEB_TNA/mc_bones/measurements/res")
