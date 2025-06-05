@@ -542,7 +542,7 @@ if __name__ == "__main__":
     
     
     # Example usage
-    svg_path = "sample/20_2500_20_1x1.svg"
+    # svg_path = "sample/20_2500_20_1x1.svg"
     # df_list = parse_svg_plot(svg_path,**settings)
     
     # save_parsed_data(df_list,"sample/curves","sample",**settings)    
@@ -564,6 +564,6 @@ if __name__ == "__main__":
     # zwick_parse_pipeline(svg_path,settings,"sample")
     
     
-    zwick_parse_pipeline("/nas/medicopus_share/Projects/ANIMALS/PIGWEB_TNA/mc_bones/measurements/80.svg",
+    zwick_parse_pipeline("/nas/medicopus_share/Projects/ANIMALS/PIGWEB_TNA/mc_bones/measurements/mc_bones_all.svg",
                          settings,
-                         "/nas/medicopus_share/Projects/ANIMALS/PIGWEB_TNA/mc_bones/measurements/res")
+                         "/nas/medicopus_share/Projects/ANIMALS/PIGWEB_TNA/mc_bones/measurements/all_res")
