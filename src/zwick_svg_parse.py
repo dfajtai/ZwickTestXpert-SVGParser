@@ -1,6 +1,6 @@
 import os, sys, glob, re
 from collections import OrderedDict
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 import pandas as pd
@@ -125,7 +125,8 @@ def parse_svg_plot(svg_path:str, min_segment_len:int = 100,
     return df_list
 
 
-def save_parsed_data(parsed_data:List[pd.DataFrame],out_dir:str, name_extension:str, start_index:int = 1, index_length:int = 3,
+def save_parsed_data(parsed_data:List[pd.DataFrame],
+                     out_dir:str, name_extension:str, start_index:int = 1, index_length:int = 3,
                      x_label: str = "Travel[mm]",y_label: str = "Force[N]",*args, **kwargs):
     assert isinstance(parsed_data,list)
     if not os.path.isdir(out_dir):
@@ -346,18 +347,25 @@ def tangent_line(x, x0, k, L, b):
 def curve_characteristics(parsed_data:List[pd.DataFrame],out_dir:str, name_extension:str, start_index:int = 1, index_length:int = 3,
                      x_label: str = "Travel[mm]",y_label: str = "Force[N]",
                      x_lim:list = [0,20], y_lim:list = [0,2500],
-                     save_plot = True, show_plot = False,*args, **kwargs):
+                     save_plot = True, show_plot = False,
+                     index_mapping_dict: Optional[dict] = None, 
+                     analysis_x_range: Optional[list] = None,
+                     *args, **kwargs):
     
     assert isinstance(parsed_data,list)
     if not os.path.isdir(out_dir):
         os.makedirs(out_dir,exist_ok=False)
     
     res_list = []
+    
 
     for i, df in enumerate(parsed_data):
         idx = start_index+i
         
-        sample_name = str(idx).zfill(index_length)
+        if isinstance(index_mapping_dict,dict): # maps indices to an ID
+            sample_name = index_mapping_dict.get(idx)
+        else:
+            sample_name = str(idx).zfill(index_length)
         
         if not isinstance(df,pd.DataFrame):
             print(f"Sample {idx} is invalid. (Invalid type.)")
@@ -376,6 +384,17 @@ def curve_characteristics(parsed_data:List[pd.DataFrame],out_dir:str, name_exten
         X = X[:-1][sanitize_mask&x_lim_mask[:-1]]
         Y = Y[:-1][sanitize_mask&x_lim_mask[:-1]]
         
+        if isinstance(analysis_x_range,list):
+            assert len(analysis_x_range)==2
+            analysis_x_range = sorted(analysis_x_range)
+            indices = np.where((X >= analysis_x_range[0]) & (X <= analysis_x_range[1]))[0]
+            assert len(indices)>0, f"There is no data on the range of {analysis_x_range}"
+            
+            X = X[indices]
+            Y = Y[indices]
+
+            x_lim = [max(x_lim[0],analysis_x_range[0]),min(x_lim[1],analysis_x_range[1])]
+            
         
         # global maxima
         F_max = np.max(Y)
@@ -403,9 +422,15 @@ def curve_characteristics(parsed_data:List[pd.DataFrame],out_dir:str, name_exten
         before_grad_max = np.max(before_grad)
         before_gra_max_loc = curve_x_before[np.argmax(before_grad)]
         
-        after_grad = np.gradient(curve_y_after,curve_x_after)
-        after_grad_min = np.min(after_grad)
-        after_grad_min_loc = curve_x_after[np.argmin(after_grad)]
+        try:
+            after_grad = np.gradient(curve_y_after,curve_x_after)
+            after_grad_min = np.min(after_grad)
+            after_grad_min_loc = curve_x_after[np.argmin(after_grad)]
+        except Exception as exc:
+            print(exc)
+            after_grad = np.nan
+            after_grad_min = np.nan
+            after_grad_min_loc = np.nan
         
         # sigmoid fit
         
@@ -563,7 +588,33 @@ if __name__ == "__main__":
     
     # zwick_parse_pipeline(svg_path,settings,"sample")
     
+    # zwick_parse_pipeline("/nas/medicopus_share/Projects/ANIMALS/PIGWEB_TNA/mc_bones/measurements/mc_bones_all.svg",
+    #                     settings,
+    #                     "/nas/medicopus_share/Projects/ANIMALS/PIGWEB_TNA/mc_bones/measurements/all_res")
     
-    zwick_parse_pipeline("/nas/medicopus_share/Projects/ANIMALS/PIGWEB_TNA/mc_bones/measurements/mc_bones_all.svg",
-                         settings,
-                         "/nas/medicopus_share/Projects/ANIMALS/PIGWEB_TNA/mc_bones/measurements/all_res")
+    met_index_df = pd.read_csv("/nas/medicopus_share/Projects/ANIMALS/PIGWEB_TNA/piglet/bone_fracture/met_order.csv")
+    met_index_dict = dict(zip(met_index_df['index'], met_index_df['sample_id']))
+    
+    met_settings = OrderedDict(x_label= "Travel[mm]",y_label = "Force[N]",
+            x_lim= [0,20], y_lim= [0,650],x_min= 0, y_min = 0, 
+            x_max= 20, y_max=650, min_segment_len = 200,
+            index_mapping_dict = met_index_df,
+            analysis_x_range = [0,12.5])
+    
+    zwick_parse_pipeline("/nas/medicopus_share/Projects/ANIMALS/PIGWEB_TNA/piglet/bone_fracture/raw/MET_20x650.svg",
+                        met_settings,
+                        "/nas/medicopus_share/Projects/ANIMALS/PIGWEB_TNA/piglet/bone_fracture/MET",
+                        )
+    
+    rib_index_df = pd.read_csv("/nas/medicopus_share/Projects/ANIMALS/PIGWEB_TNA/piglet/bone_fracture/rib_oder.csv")
+    rib_index_dict = dict(zip(rib_index_df['index'], rib_index_df['sample_id']))
+        
+    rib_settings = OrderedDict(x_label= "Travel[mm]",y_label = "Force[N]",
+        x_lim= [0,15], y_lim= [0,300],x_min= 0, y_min = 0, 
+        x_max= 15, y_max=300, min_segment_len = 200,
+        index_mapping_dict = rib_index_dict,
+        analysis_x_range = [0,12.5])
+        
+    zwick_parse_pipeline("/nas/medicopus_share/Projects/ANIMALS/PIGWEB_TNA/piglet/bone_fracture/raw/RIB_15x300.svg",
+                        rib_settings,
+                        "/nas/medicopus_share/Projects/ANIMALS/PIGWEB_TNA/piglet/bone_fracture/RIB")
