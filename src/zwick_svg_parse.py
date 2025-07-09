@@ -401,8 +401,8 @@ def curve_characteristics(parsed_data:List[pd.DataFrame],out_dir:str, name_exten
         F_max_index = np.argmax(Y)
         F_max_loc = X[F_max_index]
         
-        curve_x_before = X[:F_max_index]        
-        curve_y_before = Y[:F_max_index]
+        curve_x_before = X[:F_max_index+1]        
+        curve_y_before = Y[:F_max_index+1]
 
         curve_x_after = X[F_max_index:]        
         curve_y_after = Y[F_max_index:]
