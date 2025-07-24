@@ -127,7 +127,8 @@ def parse_svg_plot(svg_path:str, min_segment_len:int = 100,
 
 def save_parsed_data(parsed_data:List[pd.DataFrame],
                      out_dir:str, name_extension:str, start_index:int = 1, index_length:int = 3,
-                     x_label: str = "Travel[mm]",y_label: str = "Force[N]",*args, **kwargs):
+                     x_label: str = "Travel[mm]",y_label: str = "Force[N]",
+                     index_mapping_dict: Optional[dict] = None, *args, **kwargs):
     assert isinstance(parsed_data,list)
     if not os.path.isdir(out_dir):
         os.makedirs(out_dir,exist_ok=False)
@@ -136,6 +137,11 @@ def save_parsed_data(parsed_data:List[pd.DataFrame],
 
     for i, df in enumerate(parsed_data):
         idx = start_index+i
+        
+        if isinstance(index_mapping_dict,dict): # maps indices to an ID
+            sample_name = index_mapping_dict.get(idx)
+        else:
+            sample_name = str(idx).zfill(index_length)
         
         if not isinstance(df,pd.DataFrame):
             print(f"Sample {idx} is invalid. (Invalid type.)")
@@ -148,15 +154,16 @@ def save_parsed_data(parsed_data:List[pd.DataFrame],
         _df = df.copy()
         _df.columns = [col_lookup.get(c) for c in df.columns]
         
-        out_path = os.path.join(out_dir,f"{name_extension}_{str(idx).zfill(index_length)}.csv")
+        out_path = os.path.join(out_dir,f"{name_extension}_{sample_name}.csv")
         _df.to_csv(out_path,index = False, float_format="%.3f")
         
-        print(f"Sample {str(idx).zfill(index_length)} saved at {out_path}")
+        print(f"Sample {sample_name} saved at {out_path}")
         
 
 def save_parsed_data_as_plots(parsed_data:List[pd.DataFrame],out_dir:str, name_extension:str, start_index:int = 1, index_length:int = 3,
                      x_label: str = "Travel[mm]",y_label: str = "Force[N]",
-                     x_lim:list = [0,20], y_lim:list = [0,2500],*args, **kwargs):
+                     x_lim:list = [0,20], y_lim:list = [0,2500],
+                     index_mapping_dict: Optional[dict] = None,*args, **kwargs):
     
     assert isinstance(parsed_data,list)
     if not os.path.isdir(out_dir):
@@ -167,12 +174,17 @@ def save_parsed_data_as_plots(parsed_data:List[pd.DataFrame],out_dir:str, name_e
     for i, df in enumerate(parsed_data):
         idx = start_index+i
         
+        if isinstance(index_mapping_dict,dict): # maps indices to an ID
+            sample_name = index_mapping_dict.get(idx)
+        else:
+            sample_name = str(idx).zfill(index_length)
+        
         if not isinstance(df,pd.DataFrame):
-            print(f"Sample {idx} is invalid. (Invalid type.)")
+            print(f"Sample {sample_name} is invalid. (Invalid type.)")
             continue
         
         if not all([c in df.columns for c in ["x","y"]]):
-            print(f"Sample {idx} is invalid. (Missing column.)")
+            print(f"Sample {sample_name} is invalid. (Missing column.)")
             continue
         
         fig, ax = plt.subplots()
@@ -180,7 +192,7 @@ def save_parsed_data_as_plots(parsed_data:List[pd.DataFrame],out_dir:str, name_e
         ax.set_xlabel(col_lookup.get('x'))
         ax.set_ylabel(col_lookup.get('y'))
         
-        ax.set_title(f'Sample {str(idx).zfill(index_length)}')
+        ax.set_title(f'Sample {sample_name}')
         
         # Y-axis: major grid every 500, minor grid every 100
         ax.yaxis.set_major_locator(MultipleLocator(500))
@@ -198,12 +210,12 @@ def save_parsed_data_as_plots(parsed_data:List[pd.DataFrame],out_dir:str, name_e
         ax.grid(True, axis='x', which='major', linestyle=':', linewidth=0.5, color='black')
         ax.grid(True, axis='x', which='minor', linestyle=':', linewidth=0.2, color='gray')
         
-        out_path = os.path.join(out_dir,f"{name_extension}_{str(idx).zfill(index_length)}.png")
+        out_path = os.path.join(out_dir,f"{name_extension}_{sample_name}.png")
         
         plt.savefig(out_path)  # Save the figure
         plt.close()
         
-        print(f"Plot created for sample {str(idx).zfill(index_length)} at {out_path}")
+        print(f"Plot created for sample {sample_name} at {out_path}")
         
         
 def analyze_data(x:np.ndarray,y:np.ndarray, target_num_of_extremas:int=2, min_value_factor:float = 0.2,*args, **kwargs)->dict:
@@ -598,7 +610,7 @@ if __name__ == "__main__":
     met_settings = OrderedDict(x_label= "Travel[mm]",y_label = "Force[N]",
             x_lim= [0,20], y_lim= [0,650],x_min= 0, y_min = 0, 
             x_max= 20, y_max=650, min_segment_len = 200,
-            index_mapping_dict = met_index_df,
+            index_mapping_dict = met_index_dict,
             analysis_x_range = [0,12.5])
     
     zwick_parse_pipeline("/nas/medicopus_share/Projects/ANIMALS/PIGWEB_TNA/piglet/bone_fracture/raw/MET_20x650.svg",
